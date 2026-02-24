@@ -75,8 +75,16 @@ Options:
 
 ## Demo (One-Liner)
 
+Native Linux:
+
 ```bash
-make debug && (./httpd-debug -p 8080 -t 2 -s ./tests/static -i 10 >/tmp/httpd.log 2>&1 & pid=$!; sleep 1; curl -sS http://127.0.0.1:8080/healthz; echo; curl -sS -X POST --data-binary 'hello-demo' http://127.0.0.1:8080/echo; echo; curl -sS http://127.0.0.1:8080/static/hello.txt; echo; curl -sS http://127.0.0.1:8080/metrics; kill $pid)
+make debug && (./httpd-debug -p 8080 -t 2 -s ./tests/static -i 10 >/tmp/httpd.log 2>&1 & pid=$!; for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null && break; sleep 0.1; done; curl -sS http://127.0.0.1:8080/healthz; echo; curl -sS -X POST --data-binary "hello-demo" http://127.0.0.1:8080/echo; echo; curl -sS http://127.0.0.1:8080/static/hello.txt; echo; curl -sS http://127.0.0.1:8080/metrics; kill $pid)
+```
+
+macOS via Docker (Linux runtime):
+
+```bash
+docker run --rm -it -v "$PWD":/work -w /work ubuntu:24.04 bash -lc 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential make python3 curl && make debug && (./httpd-debug -p 8080 -t 2 -s ./tests/static -i 10 >/tmp/httpd.log 2>&1 & pid=$!; for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null && break; sleep 0.1; done; curl -sS http://127.0.0.1:8080/healthz; echo; curl -sS -X POST --data-binary "hello-demo" http://127.0.0.1:8080/echo; echo; curl -sS http://127.0.0.1:8080/static/hello.txt; echo; curl -sS http://127.0.0.1:8080/metrics; kill $pid)'
 ```
 
 ## Tests
