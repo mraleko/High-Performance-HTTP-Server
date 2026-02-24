@@ -17,6 +17,7 @@ MIN_STATIC_RPS="${MIN_STATIC_RPS:-75000}"
 MAX_STATIC_P99_MS="${MAX_STATIC_P99_MS:-10}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_FILE="${OUT_FILE:-$ROOT_DIR/tests/benchmark_results_${STAMP}.txt}"
+SERVER_LOG="${SERVER_LOG:-$ROOT_DIR/tests/benchmark_httpd_${STAMP}.log}"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "benchmark.sh requires Linux (server runtime uses epoll)." >&2
@@ -48,7 +49,7 @@ latency_to_ms() {
   }'
 }
 
-"$HTTPD_BIN" -p "$PORT" -t "$THREADS" -s "$STATIC_ROOT" -i "$IDLE_TIMEOUT" >/dev/null 2>&1 &
+"$HTTPD_BIN" -p "$PORT" -t "$THREADS" -s "$STATIC_ROOT" -i "$IDLE_TIMEOUT" >"$SERVER_LOG" 2>&1 &
 HTTPD_PID=$!
 cleanup() {
   if kill -0 "$HTTPD_PID" >/dev/null 2>&1; then
@@ -59,6 +60,9 @@ cleanup() {
 trap cleanup EXIT
 
 for _ in $(seq 1 100); do
+  if ! kill -0 "$HTTPD_PID" >/dev/null 2>&1; then
+    break
+  fi
   if [[ "$(curl -fsS "http://$HOST:$PORT/healthz" || true)" == "ok" ]]; then
     break
   fi
@@ -67,6 +71,15 @@ done
 
 if [[ "$(curl -fsS "http://$HOST:$PORT/healthz" || true)" != "ok" ]]; then
   echo "Server did not become healthy on $HOST:$PORT." >&2
+  if ! kill -0 "$HTTPD_PID" >/dev/null 2>&1; then
+    wait "$HTTPD_PID" || true
+    echo "httpd process exited during startup. Log: $SERVER_LOG" >&2
+  else
+    echo "httpd is running but health checks failed. Log: $SERVER_LOG" >&2
+  fi
+  echo "----- httpd startup log -----" >&2
+  tail -n 200 "$SERVER_LOG" >&2 || true
+  echo "-----------------------------" >&2
   exit 1
 fi
 

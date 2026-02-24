@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/sendfile.h>
 #include <sys/socket.h>
@@ -367,6 +369,9 @@ static void handle_accept(worker_ctx_t *ctx) {
             return;
         }
 
+        int one = 1;
+        (void)setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+
         if (ensure_conn_capacity(ctx, client_fd) != 0) {
             close(client_fd);
             continue;
@@ -410,11 +415,13 @@ static void close_idle_connections(worker_ctx_t *ctx, uint64_t now_ms) {
 static int worker_init(worker_ctx_t *ctx) {
     ctx->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (ctx->epoll_fd < 0) {
+        perror("epoll_create1");
         return -1;
     }
 
     ctx->listen_fd = net_create_listener(ctx->cfg.port, ctx->cfg.backlog, 1);
     if (ctx->listen_fd < 0) {
+        perror("net_create_listener");
         close(ctx->epoll_fd);
         ctx->epoll_fd = -1;
         return -1;
@@ -425,6 +432,7 @@ static int worker_init(worker_ctx_t *ctx) {
     ev.data.fd = ctx->listen_fd;
     ev.events = EPOLLIN | EPOLLET;
     if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, ctx->listen_fd, &ev) != 0) {
+        perror("epoll_ctl listen add");
         close(ctx->listen_fd);
         close(ctx->epoll_fd);
         ctx->listen_fd = -1;
@@ -435,6 +443,7 @@ static int worker_init(worker_ctx_t *ctx) {
     ctx->conns_cap = 1024;
     ctx->conns = calloc(ctx->conns_cap, sizeof(*ctx->conns));
     if (ctx->conns == NULL) {
+        fprintf(stderr, "calloc connection table failed\\n");
         close(ctx->listen_fd);
         close(ctx->epoll_fd);
         ctx->listen_fd = -1;
@@ -473,6 +482,7 @@ static void *worker_main(void *arg) {
     worker_ctx_t *ctx = arg;
 
     if (worker_init(ctx) != 0) {
+        fprintf(stderr, "worker %d init failed\\n", ctx->id);
         g_stop = 1;
         return NULL;
     }

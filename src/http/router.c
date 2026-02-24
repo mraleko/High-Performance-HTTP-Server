@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -9,6 +10,22 @@
 
 #include "metrics.h"
 #include "util.h"
+
+#define STATIC_CACHE_MAX 256
+#define STATIC_CACHE_PATH_CAP 2048
+#define STATIC_CACHE_CTYPE_CAP 63
+
+typedef struct {
+    bool used;
+    char full_path[STATIC_CACHE_PATH_CAP];
+    int fd;
+    off_t file_size;
+    char content_type[STATIC_CACHE_CTYPE_CAP + 1];
+} static_cache_entry_t;
+
+static static_cache_entry_t g_static_cache[STATIC_CACHE_MAX];
+static pthread_mutex_t g_static_cache_mu = PTHREAD_MUTEX_INITIALIZER;
+static unsigned long g_static_cache_next_slot = 0;
 
 static const char *content_type_for_path(const char *path) {
     const char *dot = strrchr(path, '.');
@@ -37,6 +54,87 @@ static const char *content_type_for_path(const char *path) {
         return "image/jpeg";
     }
     return "application/octet-stream";
+}
+
+static bool static_cache_lookup_dup(
+    const char *full_path,
+    int *out_fd,
+    off_t *out_size,
+    char *out_content_type,
+    size_t out_content_type_cap
+) {
+    bool found = false;
+    pthread_mutex_lock(&g_static_cache_mu);
+    for (int i = 0; i < STATIC_CACHE_MAX; ++i) {
+        static_cache_entry_t *entry = &g_static_cache[i];
+        if (!entry->used) {
+            continue;
+        }
+        if (strcmp(entry->full_path, full_path) != 0) {
+            continue;
+        }
+
+        int dup_fd = dup(entry->fd);
+        if (dup_fd >= 0) {
+            *out_fd = dup_fd;
+            *out_size = entry->file_size;
+            snprintf(out_content_type, out_content_type_cap, "%s", entry->content_type);
+            found = true;
+        }
+        break;
+    }
+    pthread_mutex_unlock(&g_static_cache_mu);
+    return found;
+}
+
+static void static_cache_insert(
+    const char *full_path,
+    int file_fd,
+    off_t file_size,
+    const char *content_type
+) {
+    int cached_fd = dup(file_fd);
+    if (cached_fd < 0) {
+        return;
+    }
+
+    pthread_mutex_lock(&g_static_cache_mu);
+
+    int existing_slot = -1;
+    int free_slot = -1;
+    for (int i = 0; i < STATIC_CACHE_MAX; ++i) {
+        static_cache_entry_t *entry = &g_static_cache[i];
+        if (entry->used) {
+            if (strcmp(entry->full_path, full_path) == 0) {
+                existing_slot = i;
+                break;
+            }
+        } else if (free_slot < 0) {
+            free_slot = i;
+        }
+    }
+
+    int slot = existing_slot;
+    if (slot < 0) {
+        if (free_slot >= 0) {
+            slot = free_slot;
+        } else {
+            slot = (int)(g_static_cache_next_slot++ % STATIC_CACHE_MAX);
+        }
+    }
+
+    static_cache_entry_t *entry = &g_static_cache[slot];
+    if (entry->used && entry->fd >= 0) {
+        close(entry->fd);
+    }
+
+    entry->used = true;
+    snprintf(entry->full_path, sizeof(entry->full_path), "%s", full_path);
+    entry->fd = cached_fd;
+    entry->file_size = file_size;
+    snprintf(entry->content_type, sizeof(entry->content_type), "%s", content_type);
+
+    pthread_mutex_unlock(&g_static_cache_mu);
 }
 
 void http_response_reset(http_response_t *resp) {
@@ -320,6 +418,35 @@ int http_route_request(
             return route_bad_request(resp, close_after_send);
         }
 
+        int cached_fd = -1;
+        off_t cached_size = 0;
+        char cached_content_type[STATIC_CACHE_CTYPE_CAP + 1];
+        if (static_cache_lookup_dup(
+                full_path,
+                &cached_fd,
+                &cached_size,
+                cached_content_type,
+                sizeof(cached_content_type)
+            )) {
+            if (response_prepare_head(
+                    resp,
+                    200,
+                    "OK",
+                    cached_content_type,
+                    (size_t)cached_size,
+                    close_after_send
+                ) != 0) {
+                close(cached_fd);
+                return route_server_error(resp, true);
+            }
+
+            resp->body_len = 0;
+            resp->file_fd = cached_fd;
+            resp->file_offset = 0;
+            resp->file_remaining = cached_size;
+            return 0;
+        }
+
         int fd = open(full_path, O_RDONLY | O_CLOEXEC);
         if (fd < 0) {
             if (errno == ENOENT || errno == ENOTDIR) {
@@ -339,11 +466,12 @@ int http_route_request(
             return route_server_error(resp, true);
         }
 
+        const char *ctype = content_type_for_path(rel);
         if (response_prepare_head(
                 resp,
                 200,
                 "OK",
-                content_type_for_path(rel),
+                ctype,
                 (size_t)st.st_size,
                 close_after_send
             ) != 0) {
@@ -351,6 +479,7 @@ int http_route_request(
             return route_server_error(resp, true);
         }
 
+        static_cache_insert(full_path, fd, st.st_size, ctype);
         resp->body_len = 0;
         resp->file_fd = fd;
         resp->file_offset = 0;

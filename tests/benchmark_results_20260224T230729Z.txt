@@ -1,0 +1,64 @@
+# httpd benchmark results
+date_utc: 2026-02-24T23:08:14Z
+hostname: 278f3949a69c
+kernel: Linux 6.12.68-linuxkit aarch64 GNU/Linux
+server_bin: /work/httpd
+server_args: -p 28080 -t 4 -s /work/tests/static -i 10
+
+## wrk GET /healthz
+Running 15s test @ http://127.0.0.1:28080/healthz
+  8 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   681.02us  668.64us  24.66ms   95.79%
+    Req/Sec    49.43k     3.85k   66.26k    80.33%
+  Latency Distribution
+     50%  584.00us
+     75%  687.00us
+     90%    0.94ms
+     99%    3.03ms
+  5906504 requests in 15.02s, 506.96MB read
+Requests/sec: 393128.57
+Transfer/sec:     33.74MB
+
+## wrk GET /static/hello.txt
+Running 15s test @ http://127.0.0.1:28080/static/hello.txt
+  8 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    10.63ms    4.33ms  97.53ms   96.95%
+    Req/Sec     3.09k   439.95    14.85k    94.42%
+  Latency Distribution
+     50%   10.99ms
+     75%   11.71ms
+     90%   12.27ms
+     99%   22.75ms
+  368911 requests in 15.07s, 35.89MB read
+Requests/sec:  24477.63
+Transfer/sec:      2.38MB
+
+## wrk POST /echo
+Running 15s test @ http://127.0.0.1:28080/echo
+  8 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     0.86ms    2.33ms 148.17ms   98.05%
+    Req/Sec    45.08k     8.09k  138.94k    85.02%
+  Latency Distribution
+     50%  594.00us
+     75%  819.00us
+     90%    1.29ms
+     99%    4.84ms
+  5367196 requests in 15.09s, 598.87MB read
+Requests/sec: 355628.87
+Transfer/sec:     39.68MB
+
+## assertions
+static_rps 24477.63
+static_p99_ms 22.750
+assert_static_rps_gte_75000 FAIL
+assert_static_p99_ms_lte_10 FAIL
+
+## /metrics snapshot
+requests_total 11643246
+requests_per_sec 257497.09
+connections_current 1
+bytes_in 733953860
+bytes_out 1197240696

@@ -8,29 +8,19 @@ import time
 from typing import Dict, Tuple
 
 
-def recv_exact(sock: socket.socket, n: int) -> bytes:
-    chunks = []
-    remaining = n
-    while remaining > 0:
-        chunk = sock.recv(remaining)
-        if not chunk:
-            raise RuntimeError("socket closed before full body")
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def read_response(sock: socket.socket) -> Tuple[int, Dict[str, str], bytes]:
-    data = bytearray()
-    while b"\r\n\r\n" not in data:
+def read_response(
+    sock: socket.socket,
+    pending: bytearray,
+) -> Tuple[int, Dict[str, str], bytes, bytearray]:
+    while b"\r\n\r\n" not in pending:
         chunk = sock.recv(4096)
         if not chunk:
             raise RuntimeError("socket closed before headers")
-        data.extend(chunk)
+        pending.extend(chunk)
 
-    header_end = data.index(b"\r\n\r\n") + 4
-    head = bytes(data[:header_end])
-    rest = bytes(data[header_end:])
+    header_end = pending.index(b"\r\n\r\n") + 4
+    head = bytes(pending[:header_end])
+    del pending[:header_end]
 
     lines = head.decode("latin1").split("\r\n")
     status_parts = lines[0].split(" ", 2)
@@ -46,17 +36,23 @@ def read_response(sock: socket.socket) -> Tuple[int, Dict[str, str], bytes]:
         headers[k.strip().lower()] = v.strip()
 
     content_length = int(headers.get("content-length", "0"))
-    if len(rest) < content_length:
-        rest += recv_exact(sock, content_length - len(rest))
+    while len(pending) < content_length:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise RuntimeError("socket closed before full body")
+        pending.extend(chunk)
 
-    body = rest[:content_length]
-    return status, headers, body
+    body = bytes(pending[:content_length])
+    del pending[:content_length]
+    return status, headers, body, pending
 
 
 def request_once(host: str, port: int, raw: bytes) -> Tuple[int, Dict[str, str], bytes]:
     with socket.create_connection((host, port), timeout=2.0) as sock:
         sock.sendall(raw)
-        return read_response(sock)
+        pending = bytearray()
+        status, headers, body, _ = read_response(sock, pending)
+        return status, headers, body
 
 
 def wait_for_healthz(host: str, port: int, timeout_sec: float = 5.0) -> None:
@@ -79,13 +75,14 @@ def keep_alive_test(host: str, port: int) -> None:
         req2 = b"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello"
         sock.sendall(req1 + req2)
 
-        status1, headers1, body1 = read_response(sock)
+        pending = bytearray()
+        status1, headers1, body1, pending = read_response(sock, pending)
         if status1 != 200 or body1 != b"ok":
             raise AssertionError(f"unexpected keep-alive response #1: {status1} {body1!r}")
         if headers1.get("connection", "").lower() != "keep-alive":
             raise AssertionError("expected keep-alive connection header")
 
-        status2, _, body2 = read_response(sock)
+        status2, _, body2, _ = read_response(sock, pending)
         if status2 != 200 or body2 != b"hello":
             raise AssertionError(f"unexpected keep-alive response #2: {status2} {body2!r}")
 
@@ -94,7 +91,8 @@ def connection_close_test(host: str, port: int) -> None:
     with socket.create_connection((host, port), timeout=2.0) as sock:
         req = b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
         sock.sendall(req)
-        status, headers, body = read_response(sock)
+        pending = bytearray()
+        status, headers, body, _ = read_response(sock, pending)
         if status != 200 or body != b"ok":
             raise AssertionError("bad response for connection close test")
         if headers.get("connection", "").lower() != "close":
@@ -221,7 +219,10 @@ def main() -> int:
         connection_close_test(host, port)
         static_and_traversal_test(host, port)
         concurrent_load_test(host, port, n=300)
-        metrics_test(host, port, min_requests=310)
+        # Deterministic floor:
+        # 1 startup healthz + 2 keep-alive + 1 connection-close +
+        # 2 static/traversal + 300 concurrent + 1 metrics request.
+        metrics_test(host, port, min_requests=307)
     finally:
         proc.terminate()
         try:
