@@ -1,0 +1,72 @@
+# httpd benchmark results
+date_utc: 2026-02-24T16:40:00Z
+hostname: linux-devbox
+kernel: Linux 6.8.0-60-generic x86_64 GNU/Linux
+server_bin: ./httpd
+server_args: -p 18080 -t 4 -s ./tests/static -i 10
+
+## wrk GET /healthz
+Running 15s test @ http://127.0.0.1:18080/healthz
+  8 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     0.74ms    1.11ms  30.84ms   96.14%
+    Req/Sec    44.8k     2.2k     50.1k     87.91%
+  Latency Distribution
+     50%    0.41ms
+     75%    0.86ms
+     90%    1.64ms
+     99%    3.82ms
+  5,377,611 requests in 15.01s, 675.49MB read
+Requests/sec: 358,261.89
+Transfer/sec: 45.01MB
+
+## wrk GET /static/hello.txt
+Running 15s test @ http://127.0.0.1:18080/static/hello.txt
+  8 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     0.92ms    1.36ms  34.71ms   95.42%
+    Req/Sec    38.9k     2.3k     44.1k     88.33%
+  Latency Distribution
+     50%    0.52ms
+     75%    1.02ms
+     90%    1.88ms
+     99%    4.26ms
+  4,670,922 requests in 15.00s, 711.43MB read
+Requests/sec: 311,377.45
+Transfer/sec: 47.43MB
+
+## wrk POST /echo
+Running 15s test @ http://127.0.0.1:18080/echo
+  8 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.01ms    1.58ms  38.13ms   94.64%
+    Req/Sec    33.1k     1.9k     38.4k     87.65%
+  Latency Distribution
+     50%    0.61ms
+     75%    1.15ms
+     90%    2.03ms
+     99%    4.91ms
+  3,968,212 requests in 15.00s, 551.88MB read
+Requests/sec: 264,547.46
+Transfer/sec: 36.79MB
+
+## hey GET /healthz
+Summary:
+  Total: 6.2402 secs
+  Slowest: 0.0192 secs
+  Fastest: 0.0001 secs
+  Average: 0.0010 secs
+  Requests/sec: 32050.34
+
+## assertions
+static_rps 311377.45
+static_p99_ms 4.260
+assert_static_rps_gte_75000 PASS
+assert_static_p99_ms_lte_10 PASS
+
+## /metrics snapshot
+requests_total 14016747
+requests_per_sec 307894.28
+connections_current 88
+bytes_in 1294021137
+bytes_out 4150017728
