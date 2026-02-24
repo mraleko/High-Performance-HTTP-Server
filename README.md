@@ -115,7 +115,10 @@ The script runs `wrk --latency`, captures p99 for static workload, and enforces:
 - static p99 latency `<= 10ms`
 
 By default it writes `tests/benchmark_results_<timestamp>.txt`.
-Committed example report: `tests/benchmark_results_sample_2026-02-24.txt`.
+Committed reports:
+
+- `tests/benchmark_results_20260224T231228Z.txt` (recorded run)
+- `tests/benchmark_results_sample_2026-02-24.txt` (tracked sample copy)
 
 ### wrk
 
@@ -141,10 +144,11 @@ hey -n 100000 -c 128 -m POST -d 'hello from hey' http://127.0.0.1:8080/echo
 
 ## Sample Results (Recorded Linux Run)
 
-From `tests/benchmark_results_sample_2026-02-24.txt`:
+From `tests/benchmark_results_20260224T231228Z.txt`:
 
-- `wrk /static/hello.txt`: `311,377 req/s`
-- static p99 latency: `4.26ms`
+- `wrk /healthz`: `394,523 req/s` (p99 `2.12ms`)
+- `wrk /static/hello.txt`: `341,518 req/s` (p99 `1.73ms`)
+- `wrk /echo`: `384,212 req/s` (p99 `2.53ms`)
 - benchmark assertions: `assert_static_rps_gte_75000 PASS`, `assert_static_p99_ms_lte_10 PASS`
 
 ## Design Tradeoffs
