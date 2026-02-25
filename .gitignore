@@ -1,0 +1,28 @@
+# Build outputs
+/build/
+/httpd
+/httpd-debug
+/parser_tests
+
+# Debug symbol bundles (macOS)
+*.dSYM/
+
+# Generic object/temporary files
+*.o
+*.obj
+
+# Python cache artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS noise
+.DS_Store
+
+# Generated benchmark artifacts
+/tests/benchmark_httpd_*.log
+/tests/benchmark_results_*.txt
+
+# Keep canonical benchmark evidence files
+!/tests/benchmark_results_sample_2026-02-24.txt
+!/tests/benchmark_results_20260224T231228Z.txt
