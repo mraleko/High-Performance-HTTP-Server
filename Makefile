@@ -12,7 +12,7 @@ RELEASE_OBJS := $(patsubst src/%.c,build/release/%.o,$(SRCS))
 DEBUG_OBJS := $(patsubst src/%.c,build/debug/%.o,$(SRCS))
 UNAME_S := $(shell uname -s)
 
-.PHONY: all release debug unit integration test bench clean
+.PHONY: all release debug unit integration test bench demo demo-docker clean
 
 all: release
 
@@ -52,6 +52,12 @@ test: unit integration
 
 bench: httpd
 	bash tests/benchmark.sh
+
+demo:
+	bash scripts/demo_linux.sh
+
+demo-docker:
+	bash scripts/demo_docker.sh
 
 clean:
 	rm -rf build httpd httpd-debug parser_tests
